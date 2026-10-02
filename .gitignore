@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+.env
+*.log
+# Solo referencia local (no se publica)
+referencia/
+# Notas internas del proyecto (no se publican)
+CLAUDE.md
