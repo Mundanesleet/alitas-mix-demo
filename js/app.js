@@ -73,29 +73,38 @@ function drop(img, late) {
   if (late) img.classList.add('late');
 }
 
-// Celular: el nombre sale hacia un lado y el nuevo entra por el otro, en la dirección del cambio.
-const EASE = 'cubic-bezier(.22, .9, .28, 1)';
-let nameOut = null, nameIn = null;
+// Celular: el nombre viejo y el nuevo se deslizan juntos (uno empuja al otro), al mismo ritmo que los platos.
+// La duración y la curva deben coincidir con la transición de .slide en el CSS de celular.
+const EASE = 'cubic-bezier(.4, 0, .2, 1)';
+const SLIDE_MS = 1400;
+let nameIn = null, ghost = null;
+function clearName() {
+  if (nameIn) { nameIn.cancel(); nameIn = null; }
+  if (ghost) { ghost.remove(); ghost = null; }
+}
 function slideName(d, text) {
-  if (nameOut) nameOut.cancel();
-  if (nameIn) nameIn.cancel();
+  clearName();
   giant.classList.remove('swap');
-  const dist = giant.offsetWidth * .55;
   // Parte desde donde lo dejó el dedo (si se estaba arrastrando).
-  const fromT = giant.style.transform || 'none', fromO = giant.style.opacity || 1;
+  const off = parseFloat((giant.style.transform.match(/-?[\d.]+/) || [0])[0]);
+  const fromO = +(giant.style.opacity || 1);
   giant.style.transform = ''; giant.style.opacity = '';
-  nameOut = giant.animate([
-    { transform: fromT, opacity: fromO },
+  const w = giant.offsetWidth, dist = hero.clientWidth;
+  // Copia del nombre actual, encima del original, que sale de pantalla.
+  ghost = giant.cloneNode(true);
+  ghost.removeAttribute('id');
+  ghost.style.cssText = 'position:absolute;margin:0;left:' + giant.offsetLeft + 'px;top:' + giant.offsetTop + 'px;width:' + w + 'px;height:' + giant.offsetHeight + 'px';
+  giant.after(ghost);
+  const g = ghost;
+  g.animate([
+    { transform: 'translateX(' + off + 'px)', opacity: fromO },
     { transform: 'translateX(' + (-d * dist) + 'px)', opacity: 0 }
-  ], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
-  nameOut.onfinish = () => {
-    giant.textContent = text;
-    nameIn = giant.animate([
-      { transform: 'translateX(' + (d * dist) + 'px)', opacity: 0 },
-      { transform: 'none', opacity: 1 }
-    ], { duration: 620, easing: EASE });
-    nameOut.cancel(); nameOut = null;
-  };
+  ], { duration: SLIDE_MS, easing: EASE, fill: 'forwards' }).onfinish = () => { g.remove(); if (ghost === g) ghost = null; };
+  giant.textContent = text;
+  nameIn = giant.animate([
+    { transform: 'translateX(' + (off + d * dist) + 'px)', opacity: .2 },
+    { transform: 'none', opacity: 1 }
+  ], { duration: SLIDE_MS, easing: EASE });
 }
 
 function paintTexts(animate, d) {
@@ -158,7 +167,7 @@ function endDrag(dx) {
   layout(false);
   const fromT = giant.style.transform, fromO = giant.style.opacity;
   giant.style.transform = ''; giant.style.opacity = '';
-  giant.animate([{ transform: fromT, opacity: fromO }, { transform: 'none', opacity: 1 }], { duration: 450, easing: EASE });
+  giant.animate([{ transform: fromT, opacity: fromO }, { transform: 'none', opacity: 1 }], { duration: 600, easing: EASE });
   restart();
 }
 
@@ -173,9 +182,7 @@ hero.addEventListener('touchmove', (e) => {
     hold = true;
     slides.forEach((sl) => { sl.el.style.transition = 'none'; });
     // Si el nombre aún se estaba animando, queda fijo en la salsa actual.
-    if (nameOut) { nameOut.onfinish = null; nameOut.cancel(); nameOut = null; }
-    if (nameIn) { nameIn.cancel(); nameIn = null; }
-    giant.textContent = SALSAS[cur()].nombre.toUpperCase();
+    clearName();
   }
   dragTo(dx);
 }, { passive: true });

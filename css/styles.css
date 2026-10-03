@@ -180,6 +180,8 @@ body.fab-on .fab { opacity: 1; transform: none; pointer-events: auto; }
   .glow { top: 54%; width: 140vw; }
   .giant { position: relative; top: auto; font-size: 28vw; line-height: .86; white-space: normal; padding: 0 10px; min-height: 48vw; display: flex; align-items: center; justify-content: center; }
   .stage { position: relative; left: auto; top: auto; transform: none; width: 94vw; margin-top: -2vw; }
+  /* Deslizamiento más lento y parejo; debe coincidir con SLIDE_MS y EASE de app.js */
+  .slide { transition: transform 1.4s cubic-bezier(.4, 0, .2, 1), opacity .9s ease; }
   .hero { touch-action: pan-y pinch-zoom; }
   .copy { position: static; max-width: none; text-align: center; padding: 1svh 20px 0; }
   .copy h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
