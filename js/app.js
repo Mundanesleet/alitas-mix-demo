@@ -8,62 +8,53 @@ const { CONFIG, SALSAS, IMG } = window.ALITAS;
 const $ = (s) => document.querySelector(s);
 const N = SALSAS.length;
 const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-const mqMobile = window.matchMedia('(max-width: 720px)');
 const money = (n) => '$' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 const waLink = (text) => 'https://wa.me/' + CONFIG.whatsapp + '?text=' + encodeURIComponent(text);
 
-/* ---------- Hero ---------- */
+/* ---------- Inicio: anillo 3D de platos que gira solo, con los nombres en un cilindro 3D ---------- */
 const hero = $('#inicio');
 const stage = $('#stage');
 const giant = $('#giant');
-// Índice "virtual": solo sube o baja, nunca vuelve a 0, así el carrusel es un bucle continuo sin saltos.
-let v = Math.max(0, SALSAS.findIndex((s) => s.id === CONFIG.salsaInicial));
-const cur = () => ((v % N) + N) % N;
-let hold = false, heroVisible = true, timer = null;
-const autoplay = !reduce;
+const AUTO = 1 / CONFIG.carruselMs;      // velocidad automática: un plato llega al frente cada carruselMs
+const wrap = (x) => ((x % N) + N) % N;
+const rel = (i, p) => { let r = wrap(i - p); if (r > N / 2) r -= N; return r; }; // distancia al frente, en (-N/2, N/2]
+// Posición continua del anillo: el plato al frente es round(pos). Arranca un poco antes del centro
+// para que la primera salsa se quede al frente un rato.
+const inicial = Math.max(0, SALSAS.findIndex((s) => s.id === CONFIG.salsaInicial));
+let pos = reduce ? inicial : inicial - .3;
+let speed = reduce ? 0 : AUTO, hold = false, heroVisible = true, dragging = false, tween = null, front = null;
 
-const slides = SALSAS.map((s) => {
+const slides = SALSAS.map((s, i) => {
   const el = document.createElement('div');
   el.className = 'slide';
   const bowl = new Image(); bowl.src = IMG.bowl; bowl.alt = ''; bowl.className = 'bowl'; bowl.draggable = false;
   const wings = new Image(); wings.src = IMG[s.id]; wings.alt = 'Alitas con salsa ' + s.nombre; wings.className = 'wings'; wings.draggable = false;
   el.append(bowl, wings);
   stage.append(el);
-  return { el, wings, s, pos: null };
+  // Los platos que vienen llegando (a la derecha) y el del frente empiezan vacíos: al cargar caen sus alitas.
+  const r = rel(i, pos);
+  const filled = reduce || (r < -.75 && r > -N * 3 / 8);
+  if (!filled) wings.classList.add('empty');
+  return { el, wings, s, filled };
 });
 
-// Posiciones según la distancia al plato central (-3 … 4). Los de los extremos están ocultos.
-const SLOTS = {
-  d: {
-    '-3': { x: -130, y: 14, s: .2, o: 0, z: 0 }, '-2': { x: -98, y: 14, s: .28, o: 0, z: 0 }, '-1': { x: -70, y: 8, s: .4, o: 0, z: 1 },
-    '0': { x: 0, y: 0, s: 1, o: 1, z: 3 },
-    '1': { x: 64, y: 10, s: .4, o: 1, z: 2 }, '2': { x: 98, y: 14, s: .28, o: .55, z: 1 }, '3': { x: 130, y: 14, s: .2, o: 0, z: 0 }, '4': { x: 130, y: 14, s: .2, o: 0, z: 0 }
-  },
-  m: {
-    '-3': { x: -150, y: 14, s: .25, o: 0, z: 0 }, '-2': { x: -125, y: 14, s: .3, o: 0, z: 1 }, '-1': { x: -66, y: 12, s: .46, o: 1, z: 2 },
-    '0': { x: 0, y: 0, s: 1, o: 1, z: 3 },
-    '1': { x: 66, y: 12, s: .46, o: 1, z: 2 }, '2': { x: 125, y: 14, s: .3, o: 0, z: 1 }, '3': { x: 150, y: 14, s: .25, o: 0, z: 0 }, '4': { x: 150, y: 14, s: .25, o: 0, z: 0 }
-  }
-};
-
-function layout(instant) {
-  const set = mqMobile.matches ? SLOTS.m : SLOTS.d;
-  const c = cur();
-  slides.forEach((sl, i) => {
-    const rel = (i - c + N) % N;
-    const sg = rel > N / 2 ? rel - N : rel;
-    const p = set[String(sg)];
-    // Si un plato pasa de un extremo oculto al otro, se reubica sin animación (no se ve).
-    const teleport = instant || (sl.pos !== null && Math.abs(sg - sl.pos) > 1);
-    if (teleport) sl.el.style.transition = 'none';
-    sl.el.style.transform = 'translate(' + p.x + '%,' + p.y + '%) scale(' + p.s + ')';
-    sl.el.style.opacity = p.o;
-    sl.el.style.zIndex = p.z;
-    sl.el.setAttribute('aria-hidden', sg === 0 ? 'false' : 'true');
-    if (teleport) { void sl.el.offsetWidth; sl.el.style.transition = ''; }
-    sl.pos = sg;
-  });
-}
+// Nombres: uno por salsa, en un cilindro. Un texto oculto con el nombre más largo le da el tamaño al contenedor.
+giant.textContent = '';
+const sizer = document.createElement('span');
+sizer.className = 'gsizer';
+sizer.textContent = SALSAS.reduce((a, s) => (s.nombre.length > a.length ? s.nombre : a), '').toUpperCase();
+giant.append(sizer);
+const names = SALSAS.map((s) => {
+  const el = document.createElement('span');
+  el.className = 'gname';
+  el.textContent = s.nombre.toUpperCase();
+  giant.append(el);
+  return el;
+});
+let radius = 0;
+const measure = () => { radius = giant.offsetWidth * .5; };
+measure();
+window.addEventListener('resize', measure);
 
 function drop(img, late) {
   if (reduce) return;
@@ -73,132 +64,107 @@ function drop(img, late) {
   if (late) img.classList.add('late');
 }
 
-// Celular: el nombre viejo y el nuevo se deslizan juntos (uno empuja al otro), al mismo ritmo que los platos.
-// La duración y la curva deben coincidir con la transición de .slide en el CSS de celular.
-const EASE = 'cubic-bezier(.4, 0, .2, 1)';
-const SLIDE_MS = 1400;
-let nameIn = null, ghost = null;
-function clearName() {
-  if (nameIn) { nameIn.cancel(); nameIn = null; }
-  if (ghost) { ghost.remove(); ghost = null; }
-}
-function slideName(d, text) {
-  clearName();
-  giant.classList.remove('swap');
-  // Parte desde donde lo dejó el dedo (si se estaba arrastrando).
-  const off = parseFloat((giant.style.transform.match(/-?[\d.]+/) || [0])[0]);
-  const fromO = +(giant.style.opacity || 1);
-  giant.style.transform = ''; giant.style.opacity = '';
-  const w = giant.offsetWidth, dist = hero.clientWidth;
-  // Copia del nombre actual, encima del original, que sale de pantalla.
-  ghost = giant.cloneNode(true);
-  ghost.removeAttribute('id');
-  ghost.style.cssText = 'position:absolute;margin:0;left:' + giant.offsetLeft + 'px;top:' + giant.offsetTop + 'px;width:' + w + 'px;height:' + giant.offsetHeight + 'px';
-  giant.after(ghost);
-  const g = ghost;
-  g.animate([
-    { transform: 'translateX(' + off + 'px)', opacity: fromO },
-    { transform: 'translateX(' + (-d * dist) + 'px)', opacity: 0 }
-  ], { duration: SLIDE_MS, easing: EASE, fill: 'forwards' }).onfinish = () => { g.remove(); if (ghost === g) ghost = null; };
-  giant.textContent = text;
-  nameIn = giant.animate([
-    { transform: 'translateX(' + (off + d * dist) + 'px)', opacity: .2 },
-    { transform: 'none', opacity: 1 }
-  ], { duration: SLIDE_MS, easing: EASE });
-}
+function render() {
+  slides.forEach((sl, i) => {
+    const r = rel(i, pos);
+    const th = r * 2 * Math.PI / N;
+    const t = (Math.cos(th) + 1) / 2;                  // 1 al frente, 0 atrás
+    const x = Math.sin(th) * 92, y = (1 - t) * 14;
+    const sc = .22 + .78 * Math.pow(t, 9);
+    sl.el.style.transform = 'translate(' + x.toFixed(2) + '%,' + y.toFixed(2) + '%) scale(' + sc.toFixed(4) + ')';
+    sl.el.style.opacity = Math.min(1, Math.max(0, (t - .1) / .3)).toFixed(3);
+    sl.el.style.zIndex = Math.round(t * 10);
+    if (reduce) return;
+    // Al pasar por detrás el plato queda vacío; cuando se acerca al frente, caen las alitas (aterrizan al llegar).
+    if (Math.abs(r) > N * 3 / 8 && sl.filled) { sl.filled = false; sl.wings.classList.remove('drop', 'late'); sl.wings.classList.add('empty'); }
+    if (Math.abs(r) <= .75 && !sl.filled) { sl.filled = true; sl.wings.classList.remove('empty'); drop(sl.wings, true); }
+  });
 
-function paintTexts(animate, d) {
-  const s = SALSAS[cur()];
-  const text = s.nombre.toUpperCase();
-  if (animate && !reduce && mqMobile.matches) slideName(d || 1, text);
-  else {
-    giant.textContent = text;
-    if (animate && !reduce) { giant.classList.remove('swap'); void giant.offsetWidth; giant.classList.add('swap'); }
+  // El nombre se queda quieto un momento y gira cuando el siguiente plato cruza al frente.
+  const base = Math.floor(pos);
+  let k = Math.min(1, Math.max(0, (pos - base - .3) / .4));
+  k = k * k * (3 - 2 * k);
+  const pt = base + k;
+  names.forEach((el, i) => {
+    const a = rel(i, pt) * 90;
+    if (Math.abs(a) >= 90) { el.style.visibility = 'hidden'; return; }
+    el.style.visibility = '';
+    el.style.transform = 'translateZ(' + (-radius) + 'px) rotateY(' + a.toFixed(2) + 'deg) translateZ(' + radius + 'px)';
+    el.style.opacity = Math.pow(Math.cos(a * Math.PI / 180), .8).toFixed(3);
+  });
+
+  const c = wrap(Math.round(pos));
+  if (c !== front) {
+    front = c;
+    const s = SALSAS[c];
+    hero.style.setProperty('--glow', s.color);
+    $('#count').textContent = (c + 1) + ' de ' + N;
+    $('#sr').textContent = 'Salsa ' + s.nombre;
+    slides.forEach((sl, i) => sl.el.setAttribute('aria-hidden', i === c ? 'false' : 'true'));
   }
-  hero.style.setProperty('--glow', s.color);
-  $('#count').textContent = (cur() + 1) + ' de ' + N;
-  $('#sr').textContent = 'Salsa ' + s.nombre;
 }
 
-function step(d, user) {
-  v += d;
-  layout(false);
-  paintTexts(true, d);
-  drop(slides[cur()].wings, true);
-  if (user) restart();
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(64, now - last); last = now;
+  if (tween) {
+    const k = Math.min(1, (now - tween.t0) / tween.ms);
+    pos = tween.from + (tween.to - tween.from) * (1 - Math.pow(1 - k, 3));
+    if (k === 1) tween = null;
+  } else if (!dragging) {
+    const target = (!reduce && !hold && heroVisible && !document.hidden) ? AUTO : 0;
+    speed += (target - speed) * (1 - Math.exp(-dt / 450)); // acelera y frena suave
+    pos += speed * dt;
+  }
+  if (heroVisible) render();
+  requestAnimationFrame(frame);
 }
 
-function tick() {
-  if (autoplay && !hold && heroVisible && !document.hidden) step(1, false);
+// Flechas: giran un plato.
+function go(d) {
+  if (reduce) { pos = Math.round(pos) + d; render(); return; }
+  const to = (tween ? tween.to : Math.round(pos)) + d;
+  tween = { from: pos, to, t0: performance.now(), ms: 900 };
+  speed = 0;
 }
-function restart() {
-  clearInterval(timer);
-  timer = setInterval(tick, CONFIG.carruselMs);
-}
-
-$('#prevBtn').addEventListener('click', () => step(-1, true));
-$('#nextBtn').addEventListener('click', () => step(1, true));
+$('#prevBtn').addEventListener('click', () => go(-1));
+$('#nextBtn').addEventListener('click', () => go(1));
 stage.addEventListener('mouseenter', () => { hold = true; });
 stage.addEventListener('mouseleave', () => { hold = false; });
 $('#controls').addEventListener('focusin', () => { hold = true; });
 $('#controls').addEventListener('focusout', () => { hold = false; });
-let sx = null, sy = null, drag = null; // drag: null = sin decidir, true = horizontal, false = vertical
-const lerp = (a, b, t) => a + (b - a) * t;
 
-// Celular: mientras el dedo arrastra, los platos se mueven entre su posición y la siguiente, y el nombre lo acompaña.
-function dragTo(dx) {
-  const set = SLOTS.m;
-  const p = Math.max(-1, Math.min(1, dx / (stage.offsetWidth * .66)));
-  const t = Math.abs(p), sh = p < 0 ? -1 : 1;
-  slides.forEach((sl) => {
-    const a = set[String(sl.pos)];
-    const b = set[String(Math.max(-3, Math.min(4, sl.pos + sh)))];
-    sl.el.style.transform = 'translate(' + lerp(a.x, b.x, t) + '%,' + lerp(a.y, b.y, t) + '%) scale(' + lerp(a.s, b.s, t) + ')';
-    sl.el.style.opacity = lerp(a.o, b.o, t);
-  });
-  giant.style.transform = 'translateX(' + (dx * .6) + 'px)';
-  giant.style.opacity = 1 - t * .7;
-}
-function endDrag(dx) {
-  slides.forEach((sl) => { sl.el.style.transition = ''; });
-  hold = false;
-  if (Math.abs(dx) > 45) { step(dx < 0 ? 1 : -1, true); return; }
-  // No alcanzó: todo vuelve a su sitio.
-  layout(false);
-  const fromT = giant.style.transform, fromO = giant.style.opacity;
-  giant.style.transform = ''; giant.style.opacity = '';
-  giant.animate([{ transform: fromT, opacity: fromO }, { transform: 'none', opacity: 1 }], { duration: 600, easing: EASE });
-  restart();
-}
-
+// Dedo: el anillo sigue el arrastre y, al soltar, sigue girando con el impulso hasta volver a su ritmo.
+let sx = null, sy = null, drag = null, p0 = 0, lp = 0, lt = 0, vel = 0;
+const spacing = () => stage.offsetWidth * .65;          // distancia en pantalla entre un plato y el siguiente
 hero.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; drag = null; }, { passive: true });
 hero.addEventListener('touchmove', (e) => {
-  if (sx === null || reduce || !mqMobile.matches || drag === false) return;
+  if (sx === null || drag === false) return;
   const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
   if (drag === null) {
     if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
     drag = Math.abs(dx) > Math.abs(dy) * 1.3;
-    if (!drag) return;
-    hold = true;
-    slides.forEach((sl) => { sl.el.style.transition = 'none'; });
-    // Si el nombre aún se estaba animando, queda fijo en la salsa actual.
-    clearName();
+    if (!drag || reduce) return;
+    dragging = true; tween = null; p0 = pos; lp = pos; lt = performance.now(); vel = 0;
   }
-  dragTo(dx);
+  if (reduce) return;
+  pos = p0 - dx / spacing();
+  const now = performance.now();
+  if (now > lt) { vel = vel * .5 + ((pos - lp) / (now - lt)) * .5; lp = pos; lt = now; }
 }, { passive: true });
-hero.addEventListener('touchend', (e) => {
+function endTouch(e) {
   if (sx === null) return;
-  const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = sy = null;
-  if (drag) { drag = null; endDrag(dx); return; }
+  const dx = e && e.changedTouches.length ? e.changedTouches[0].clientX - sx : 0;
+  sx = sy = null;
+  if (drag && reduce && Math.abs(dx) > 45) go(dx < 0 ? 1 : -1);
+  if (dragging) { dragging = false; speed = Math.max(-1 / 250, Math.min(1 / 250, vel)); }
   drag = null;
-  if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) step(dx < 0 ? 1 : -1, true);
-}, { passive: true });
-hero.addEventListener('touchcancel', () => { if (drag) endDrag(0); sx = sy = drag = null; }, { passive: true });
-if (mqMobile.addEventListener) mqMobile.addEventListener('change', () => layout(true));
+}
+hero.addEventListener('touchend', endTouch, { passive: true });
+hero.addEventListener('touchcancel', endTouch, { passive: true });
 
-layout(true); paintTexts(false);
-if (!reduce) slides[cur()].wings.classList.add('drop', 'late');
-restart();
+render();
+requestAnimationFrame(frame);
 
 /* ---------- Jueves 2x1 ---------- */
 $('#jImg').src = IMG.jueves;
