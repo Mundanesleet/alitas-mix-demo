@@ -73,10 +73,39 @@ function drop(img, late) {
   if (late) img.classList.add('late');
 }
 
-function paintTexts(animate) {
+// Celular: el nombre sale hacia un lado y el nuevo entra por el otro, en la dirección del cambio.
+const EASE = 'cubic-bezier(.22, .9, .28, 1)';
+let nameOut = null, nameIn = null;
+function slideName(d, text) {
+  if (nameOut) nameOut.cancel();
+  if (nameIn) nameIn.cancel();
+  giant.classList.remove('swap');
+  const dist = giant.offsetWidth * .55;
+  // Parte desde donde lo dejó el dedo (si se estaba arrastrando).
+  const fromT = giant.style.transform || 'none', fromO = giant.style.opacity || 1;
+  giant.style.transform = ''; giant.style.opacity = '';
+  nameOut = giant.animate([
+    { transform: fromT, opacity: fromO },
+    { transform: 'translateX(' + (-d * dist) + 'px)', opacity: 0 }
+  ], { duration: 220, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+  nameOut.onfinish = () => {
+    giant.textContent = text;
+    nameIn = giant.animate([
+      { transform: 'translateX(' + (d * dist) + 'px)', opacity: 0 },
+      { transform: 'none', opacity: 1 }
+    ], { duration: 620, easing: EASE });
+    nameOut.cancel(); nameOut = null;
+  };
+}
+
+function paintTexts(animate, d) {
   const s = SALSAS[cur()];
-  giant.textContent = s.nombre.toUpperCase();
-  if (animate && !reduce) { giant.classList.remove('swap'); void giant.offsetWidth; giant.classList.add('swap'); }
+  const text = s.nombre.toUpperCase();
+  if (animate && !reduce && mqMobile.matches) slideName(d || 1, text);
+  else {
+    giant.textContent = text;
+    if (animate && !reduce) { giant.classList.remove('swap'); void giant.offsetWidth; giant.classList.add('swap'); }
+  }
   hero.style.setProperty('--glow', s.color);
   $('#count').textContent = (cur() + 1) + ' de ' + N;
   $('#sr').textContent = 'Salsa ' + s.nombre;
@@ -85,7 +114,7 @@ function paintTexts(animate) {
 function step(d, user) {
   v += d;
   layout(false);
-  paintTexts(true);
+  paintTexts(true, d);
   drop(slides[cur()].wings, true);
   if (user) restart();
 }
@@ -104,13 +133,60 @@ stage.addEventListener('mouseenter', () => { hold = true; });
 stage.addEventListener('mouseleave', () => { hold = false; });
 $('#controls').addEventListener('focusin', () => { hold = true; });
 $('#controls').addEventListener('focusout', () => { hold = false; });
-let sx = null, sy = null;
-hero.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+let sx = null, sy = null, drag = null; // drag: null = sin decidir, true = horizontal, false = vertical
+const lerp = (a, b, t) => a + (b - a) * t;
+
+// Celular: mientras el dedo arrastra, los platos se mueven entre su posición y la siguiente, y el nombre lo acompaña.
+function dragTo(dx) {
+  const set = SLOTS.m;
+  const p = Math.max(-1, Math.min(1, dx / (stage.offsetWidth * .66)));
+  const t = Math.abs(p), sh = p < 0 ? -1 : 1;
+  slides.forEach((sl) => {
+    const a = set[String(sl.pos)];
+    const b = set[String(Math.max(-3, Math.min(4, sl.pos + sh)))];
+    sl.el.style.transform = 'translate(' + lerp(a.x, b.x, t) + '%,' + lerp(a.y, b.y, t) + '%) scale(' + lerp(a.s, b.s, t) + ')';
+    sl.el.style.opacity = lerp(a.o, b.o, t);
+  });
+  giant.style.transform = 'translateX(' + (dx * .6) + 'px)';
+  giant.style.opacity = 1 - t * .7;
+}
+function endDrag(dx) {
+  slides.forEach((sl) => { sl.el.style.transition = ''; });
+  hold = false;
+  if (Math.abs(dx) > 45) { step(dx < 0 ? 1 : -1, true); return; }
+  // No alcanzó: todo vuelve a su sitio.
+  layout(false);
+  const fromT = giant.style.transform, fromO = giant.style.opacity;
+  giant.style.transform = ''; giant.style.opacity = '';
+  giant.animate([{ transform: fromT, opacity: fromO }, { transform: 'none', opacity: 1 }], { duration: 450, easing: EASE });
+  restart();
+}
+
+hero.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; drag = null; }, { passive: true });
+hero.addEventListener('touchmove', (e) => {
+  if (sx === null || reduce || !mqMobile.matches || drag === false) return;
+  const dx = e.touches[0].clientX - sx, dy = e.touches[0].clientY - sy;
+  if (drag === null) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+    drag = Math.abs(dx) > Math.abs(dy) * 1.3;
+    if (!drag) return;
+    hold = true;
+    slides.forEach((sl) => { sl.el.style.transition = 'none'; });
+    // Si el nombre aún se estaba animando, queda fijo en la salsa actual.
+    if (nameOut) { nameOut.onfinish = null; nameOut.cancel(); nameOut = null; }
+    if (nameIn) { nameIn.cancel(); nameIn = null; }
+    giant.textContent = SALSAS[cur()].nombre.toUpperCase();
+  }
+  dragTo(dx);
+}, { passive: true });
 hero.addEventListener('touchend', (e) => {
   if (sx === null) return;
   const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy; sx = sy = null;
+  if (drag) { drag = null; endDrag(dx); return; }
+  drag = null;
   if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.3) step(dx < 0 ? 1 : -1, true);
 }, { passive: true });
+hero.addEventListener('touchcancel', () => { if (drag) endDrag(0); sx = sy = drag = null; }, { passive: true });
 if (mqMobile.addEventListener) mqMobile.addEventListener('change', () => layout(true));
 
 layout(true); paintTexts(false);
