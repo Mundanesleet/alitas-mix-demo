@@ -11,18 +11,19 @@ const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const money = (n) => '$' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 const waLink = (text) => 'https://wa.me/' + CONFIG.whatsapp + '?text=' + encodeURIComponent(text);
 
-/* ---------- Inicio: anillo 3D de platos que gira solo, con los nombres en un cilindro 3D ---------- */
+/* ---------- Inicio: anillo 3D de platos con los nombres en un cilindro 3D ----------
+   Cada salsa se queda al frente CONFIG.carruselMs y luego el anillo gira (CONFIG.giroMs) hasta la siguiente. */
 const hero = $('#inicio');
 const stage = $('#stage');
 const giant = $('#giant');
-const AUTO = 1 / CONFIG.carruselMs;      // velocidad automática: un plato llega al frente cada carruselMs
+const mqMobile = window.matchMedia('(max-width: 720px)');
+const easeInOut = (k) => (k < .5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+const easeOut = (k) => 1 - Math.pow(1 - k, 3);
 const wrap = (x) => ((x % N) + N) % N;
 const rel = (i, p) => { let r = wrap(i - p); if (r > N / 2) r -= N; return r; }; // distancia al frente, en (-N/2, N/2]
-// Posición continua del anillo: el plato al frente es round(pos). Arranca un poco antes del centro
-// para que la primera salsa se quede al frente un rato.
-const inicial = Math.max(0, SALSAS.findIndex((s) => s.id === CONFIG.salsaInicial));
-let pos = reduce ? inicial : inicial - .3;
-let speed = reduce ? 0 : AUTO, hold = false, heroVisible = true, dragging = false, tween = null, front = null;
+// Posición del anillo: el plato al frente es round(pos). En reposo es un número entero.
+let pos = Math.max(0, SALSAS.findIndex((s) => s.id === CONFIG.salsaInicial));
+let idle = 0, hold = false, heroVisible = true, dragging = false, tween = null, front = null;
 
 const slides = SALSAS.map((s, i) => {
   const el = document.createElement('div');
@@ -65,14 +66,19 @@ function drop(img, late) {
 }
 
 function render() {
+  const mobile = mqMobile.matches;
   slides.forEach((sl, i) => {
     const r = rel(i, pos);
     const th = r * 2 * Math.PI / N;
     const t = (Math.cos(th) + 1) / 2;                  // 1 al frente, 0 atrás
-    const x = Math.sin(th) * 92, y = (1 - t) * 14;
-    const sc = .22 + .78 * Math.pow(t, 9);
+    // En computador los laterales van más pequeños y más arriba (más lejos), para dejar libre el texto de abajo a la izquierda.
+    const x = Math.sin(th) * 92, y = mobile ? (1 - t) * 14 : -(1 - t) * 178;
+    const sc = .22 + .78 * Math.pow(t, mobile ? 9 : 14);
     sl.el.style.transform = 'translate(' + x.toFixed(2) + '%,' + y.toFixed(2) + '%) scale(' + sc.toFixed(4) + ')';
-    sl.el.style.opacity = Math.min(1, Math.max(0, (t - .1) / .3)).toFixed(3);
+    // Computador y tablet: 3 platos (el del centro y uno pequeño a cada lado).
+    // Celular: solo el del centro; en el giro, el que sale se desvanece y el siguiente aparece al entrar.
+    const o = mobile ? (1 - Math.abs(r)) / .3 : (1.6 - Math.abs(r)) / .6;
+    sl.el.style.opacity = Math.min(1, Math.max(0, o)).toFixed(3);
     sl.el.style.zIndex = Math.round(t * 10);
     if (reduce) return;
     // Al pasar por detrás el plato queda vacío; cuando se acerca al frente, caen las alitas (aterrizan al llegar).
@@ -80,13 +86,9 @@ function render() {
     if (Math.abs(r) <= .75 && !sl.filled) { sl.filled = true; sl.wings.classList.remove('empty'); drop(sl.wings, true); }
   });
 
-  // El nombre se queda quieto un momento y gira cuando el siguiente plato cruza al frente.
-  const base = Math.floor(pos);
-  let k = Math.min(1, Math.max(0, (pos - base - .3) / .4));
-  k = k * k * (3 - 2 * k);
-  const pt = base + k;
+  // El nombre gira junto con el anillo.
   names.forEach((el, i) => {
-    const a = rel(i, pt) * 90;
+    const a = rel(i, pos) * 90;
     if (Math.abs(a) >= 90) { el.style.visibility = 'hidden'; return; }
     el.style.visibility = '';
     el.style.transform = 'translateZ(' + (-radius) + 'px) rotateY(' + a.toFixed(2) + 'deg) translateZ(' + radius + 'px)';
@@ -109,23 +111,23 @@ function frame(now) {
   const dt = Math.min(64, now - last); last = now;
   if (tween) {
     const k = Math.min(1, (now - tween.t0) / tween.ms);
-    pos = tween.from + (tween.to - tween.from) * (1 - Math.pow(1 - k, 3));
-    if (k === 1) tween = null;
-  } else if (!dragging) {
-    const target = (!reduce && !hold && heroVisible && !document.hidden) ? AUTO : 0;
-    speed += (target - speed) * (1 - Math.exp(-dt / 450)); // acelera y frena suave
-    pos += speed * dt;
+    pos = tween.from + (tween.to - tween.from) * tween.ease(k);
+    if (k === 1) { tween = null; idle = 0; }
+  } else if (!dragging && !reduce && !hold && heroVisible && !document.hidden) {
+    // Pausa con la salsa al frente; al cumplirse, gira a la siguiente.
+    idle += dt;
+    if (idle >= CONFIG.carruselMs) go(1);
   }
   if (heroVisible) render();
   requestAnimationFrame(frame);
 }
 
-// Flechas: giran un plato.
-function go(d) {
-  if (reduce) { pos = Math.round(pos) + d; render(); return; }
-  const to = (tween ? tween.to : Math.round(pos)) + d;
-  tween = { from: pos, to, t0: performance.now(), ms: 900 };
-  speed = 0;
+// Gira el anillo d platos (o hasta la posición exacta 'to' al soltar el dedo).
+function go(d, to, ms, ease) {
+  idle = 0;
+  if (to === undefined) to = (tween ? tween.to : Math.round(pos)) + d;
+  if (reduce) { pos = to; tween = null; render(); return; }
+  tween = { from: pos, to, t0: performance.now(), ms: ms || CONFIG.giroMs, ease: ease || easeInOut };
 }
 $('#prevBtn').addEventListener('click', () => go(-1));
 $('#nextBtn').addEventListener('click', () => go(1));
@@ -134,7 +136,7 @@ stage.addEventListener('mouseleave', () => { hold = false; });
 $('#controls').addEventListener('focusin', () => { hold = true; });
 $('#controls').addEventListener('focusout', () => { hold = false; });
 
-// Dedo: el anillo sigue el arrastre y, al soltar, sigue girando con el impulso hasta volver a su ritmo.
+// Dedo: el anillo sigue el arrastre y, al soltar, termina el giro hasta el plato más cercano (con impulso).
 let sx = null, sy = null, drag = null, p0 = 0, lp = 0, lt = 0, vel = 0;
 const spacing = () => stage.offsetWidth * .65;          // distancia en pantalla entre un plato y el siguiente
 hero.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; drag = null; }, { passive: true });
@@ -157,7 +159,13 @@ function endTouch(e) {
   const dx = e && e.changedTouches.length ? e.changedTouches[0].clientX - sx : 0;
   sx = sy = null;
   if (drag && reduce && Math.abs(dx) > 45) go(dx < 0 ? 1 : -1);
-  if (dragging) { dragging = false; speed = Math.max(-1 / 250, Math.min(1 / 250, vel)); }
+  if (dragging) {
+    dragging = false;
+    let to = Math.round(pos + vel * 250);
+    const r0 = Math.round(p0);
+    if (to === r0 && Math.abs(dx) > 45) to = r0 + (dx < 0 ? 1 : -1);
+    go(0, to, 700, easeOut);
+  }
   drag = null;
 }
 hero.addEventListener('touchend', endTouch, { passive: true });

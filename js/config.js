@@ -8,7 +8,8 @@ window.ALITAS = (() => {
    ============================================================ */
 const CONFIG = {
   whatsapp: '573132902422',            // WhatsApp de Pitalito (tomado del Linktree; confirmar con el restaurante)
-  carruselMs: 4200,                    // cada cuánto cambia la salsa del inicio
+  carruselMs: 3000,                    // tiempo que cada salsa se queda quieta al frente en el inicio
+  giroMs: 1400,                        // lo que tarda el giro de una salsa a la siguiente
   salsaInicial: 'picante-full',
   combos: [                            // 'salsas' = máximo de salsas por combo (POR CONFIRMAR)
     { n: 5,  precio: 24000, salsas: 2 },
